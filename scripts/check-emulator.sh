@@ -4,6 +4,10 @@ set -euo pipefail
 
 "$(dirname "$0")/check-env.sh" >/dev/null
 
+if ! java -version >/dev/null 2>&1 && [ -x "/opt/homebrew/opt/openjdk@21/bin/java" ]; then
+  export PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH"
+fi
+
 if ! command -v java >/dev/null 2>&1; then
   echo "JDK 21+ is required for Firebase emulators. Install Java and retry." >&2
   exit 1

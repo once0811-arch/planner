@@ -18,6 +18,7 @@ export const seedPlans: TravelPlan[] = [
     startDateLocal: "2026-03-01",
     endDateLocal: "2026-03-04",
     isForeign: false,
+    journalEnabledAtMs: null,
     updatedAtMs: now - 30_000,
     colorId: 0
   },
@@ -28,6 +29,7 @@ export const seedPlans: TravelPlan[] = [
     startDateLocal: "2026-04-09",
     endDateLocal: "2026-04-16",
     isForeign: true,
+    journalEnabledAtMs: now - 600_000,
     updatedAtMs: now - 600_000,
     colorId: 2
   },
@@ -38,6 +40,7 @@ export const seedPlans: TravelPlan[] = [
     startDateLocal: "2026-05-20",
     endDateLocal: "2026-05-22",
     isForeign: false,
+    journalEnabledAtMs: null,
     updatedAtMs: now - 4_200_000,
     colorId: 5
   }
@@ -60,7 +63,21 @@ export const seedMessages: Record<string, ChatMessage[]> = {
       imageUris: [],
       proposal: {
         summary: "3개 이벤트 초안",
-        operations: ["등록 2건", "수정 1건", "취소 0건"]
+        operations: ["등록 2건", "수정 1건", "취소 0건"],
+        operationPayloads: [
+          {
+            action: "create",
+            draft: {
+              title: "도톤보리 저녁",
+              dateLocal: "2026-04-10",
+              startTimeLocal: "18:30",
+              status: "confirmed"
+            }
+          }
+        ],
+        source: "ocr",
+        confidence: 0.86,
+        state: "pending"
       }
     }
   ],
@@ -138,6 +155,10 @@ export const seedEvents: Record<string, TripEvent[]> = {
       startTimeLocal: "09:40",
       category: "transport",
       status: "confirmed",
+      departAtLocal: "2026-04-09T09:40",
+      departTimezone: "Asia/Seoul",
+      arriveAtLocal: "2026-04-09T11:20",
+      arriveTimezone: "Asia/Tokyo",
       colorId: 2
     },
     {
@@ -210,7 +231,16 @@ export const seedTrash: TrashItem[] = [
     entityType: "event",
     title: "한강 자전거",
     deletedAtMs: now - 86_400_000,
-    purgeAtMs: now + 29 * 86_400_000
+    purgeAtMs: now + 29 * 86_400_000,
+    snapshotEvent: {
+      id: "tr-1-event",
+      planId: "plan-seoul-food",
+      title: "한강 자전거",
+      dateLocal: "2026-03-02",
+      category: "todo",
+      status: "confirmed",
+      colorId: 3
+    }
   }
 ];
 

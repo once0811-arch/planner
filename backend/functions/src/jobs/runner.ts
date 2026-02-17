@@ -5,6 +5,8 @@ import { asJournalJobDoc } from "./serializer";
 import { shouldSkipForLock } from "./statePolicy";
 import { defaultDueAtUtc } from "./timePolicy";
 import type { JournalJobDoc } from "./types";
+import { selectTopJournalEventIds } from "./journalPolicy";
+import { composeJournalDay, type JournalComposerEvent } from "./journalComposer";
 
 export { defaultDueAtUtc };
 
@@ -12,9 +14,143 @@ function buildJournalDayRef(planId: string, dateLocal: string) {
   return db.collection("plans").doc(planId).collection("journalDays").doc(dateLocal);
 }
 
+function normalizeStatus(value: unknown): "temporary" | "confirmed" | "completed" | null {
+  if (value === "temporary" || value === "confirmed" || value === "completed") {
+    return value;
+  }
+  return null;
+}
+
+function normalizeCategory(
+  value: unknown
+): "transport" | "stay" | "todo" | "shopping" | "food" | "etc" | null {
+  if (
+    value === "transport" ||
+    value === "stay" ||
+    value === "todo" ||
+    value === "shopping" ||
+    value === "food" ||
+    value === "etc"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+interface DailyEventSignal extends JournalComposerEvent {
+  importanceScore: number | null;
+}
+
+async function selectDailyEventSignals(job: JournalJobDoc): Promise<DailyEventSignal[]> {
+  const eventsSnap = await db
+    .collection("plans")
+    .doc(job.planId)
+    .collection("events")
+    .where("isDeleted", "==", false)
+    .where("dateLocal", "==", job.dateLocal)
+    .get();
+
+  return eventsSnap.docs.map((doc) => {
+    const importanceRaw = Number(doc.get("importanceScore"));
+    return {
+      id: doc.id,
+      title: typeof doc.get("title") === "string" ? String(doc.get("title")) : "일정",
+      status: normalizeStatus(doc.get("status")),
+      importanceScore: Number.isFinite(importanceRaw) ? importanceRaw : null,
+      startTimeLocal: typeof doc.get("startTimeLocal") === "string" ? String(doc.get("startTimeLocal")) : null,
+      category: normalizeCategory(doc.get("category")),
+      locationLabel: typeof doc.get("locationLabel") === "string" ? String(doc.get("locationLabel")) : null
+    };
+  });
+}
+
+async function readGenerateWithoutData(ownerUid: string): Promise<boolean> {
+  const settingsSnap = await db.collection("settings").doc(ownerUid).get();
+  const flag = settingsSnap.get("journalGenerateWithoutData");
+  if (typeof flag === "boolean") {
+    return flag;
+  }
+  return true;
+}
+
+async function readPlanTitle(planId: string): Promise<string> {
+  const planSnap = await db.collection("plans").doc(planId).get();
+  const title = planSnap.get("title");
+  if (typeof title === "string" && title.trim().length > 0) {
+    return title;
+  }
+  return "여행 플랜";
+}
+
+async function readPhotoSignals(planId: string, dateLocal: string): Promise<{
+  photoCount: number;
+  topLocationLabel: string | null;
+  coverImagePath: string | null;
+}> {
+  const snap = await db
+    .collection("plans")
+    .doc(planId)
+    .collection("photoCandidates")
+    .where("isDeleted", "==", false)
+    .where("dateLocal", "==", dateLocal)
+    .limit(40)
+    .get();
+
+  let topLocationLabel: string | null = null;
+  let coverImagePath: string | null = null;
+  for (const doc of snap.docs) {
+    if (!topLocationLabel) {
+      const locationLabel = doc.get("locationLabel");
+      if (typeof locationLabel === "string" && locationLabel.trim().length > 0) {
+        topLocationLabel = locationLabel;
+      }
+    }
+    if (!coverImagePath) {
+      const imagePath = doc.get("imagePath");
+      if (typeof imagePath === "string" && imagePath.trim().length > 0) {
+        coverImagePath = imagePath;
+      }
+    }
+  }
+
+  return {
+    photoCount: snap.size,
+    topLocationLabel,
+    coverImagePath
+  };
+}
+
 async function executeGenerateLike(job: JournalJobDoc) {
   const now = new Date();
   const journalDayRef = buildJournalDayRef(job.planId, job.dateLocal);
+  const eventSignals = await selectDailyEventSignals(job);
+  const selectedEventIds = selectTopJournalEventIds(
+    eventSignals.map((event) => ({
+      id: event.id,
+      status: event.status,
+      importanceScore: event.importanceScore,
+      startTimeLocal: event.startTimeLocal,
+      category: event.category
+    })),
+    5
+  );
+  const selectedEvents = selectedEventIds
+    .map((eventId) => eventSignals.find((event) => event.id === eventId))
+    .filter((event): event is DailyEventSignal => Boolean(event));
+  const [planTitle, generateWithoutData, photoSignals] = await Promise.all([
+    readPlanTitle(job.planId),
+    readGenerateWithoutData(job.ownerUid),
+    readPhotoSignals(job.planId, job.dateLocal)
+  ]);
+  const composed = composeJournalDay({
+    dateLocal: job.dateLocal,
+    planTitle,
+    events: selectedEvents,
+    photoCount: photoSignals.photoCount,
+    topLocationLabel: photoSignals.topLocationLabel,
+    generateWithoutData
+  });
+
   await journalDayRef.set(
     {
       ownerUid: job.ownerUid,
@@ -23,10 +159,14 @@ async function executeGenerateLike(job: JournalJobDoc) {
       state: "draft",
       publishAtLocal0800: defaultDueAtUtc(job.dateLocal, "publish", job.timezone),
       publishedAt: null,
-      summary: "정보가 부족해 일지를 만들지 못 했어요",
-      selectedEventIds: [],
+      summary: composed.summary,
+      entryText: composed.entryText,
+      selectedEventIds,
+      photoCount: photoSignals.photoCount,
+      topLocationLabel: photoSignals.topLocationLabel,
+      coverImagePath: photoSignals.coverImagePath,
       generationInputHash: deterministicDocId(job.planId, job.dateLocal, "journal-input"),
-      failureReasonCode: null,
+      failureReasonCode: composed.state === "insufficient_data" ? "insufficient_data" : null,
       createdAt: now,
       updatedAt: now,
       schemaVersion: 1,
@@ -49,8 +189,7 @@ async function executePublish(job: JournalJobDoc) {
     {
       state: "published",
       publishedAt: now,
-      updatedAt: now,
-      failureReasonCode: null
+      updatedAt: now
     },
     { merge: true }
   );

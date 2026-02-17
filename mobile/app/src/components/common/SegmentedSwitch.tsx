@@ -38,23 +38,25 @@ export function SegmentedSwitch<T extends string>({ value, options, onChange }: 
 const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
-    gap: TOKENS.space.sm
+    gap: TOKENS.space.xs,
+    borderWidth: 1,
+    borderColor: TOKENS.color.line,
+    borderRadius: TOKENS.radius.sm,
+    backgroundColor: TOKENS.color.surface,
+    padding: 4
   },
   segment: {
     flex: 1,
     borderRadius: TOKENS.radius.sm,
-    borderWidth: 1,
-    borderColor: TOKENS.color.line,
-    backgroundColor: TOKENS.color.surface,
     paddingVertical: 10,
-    alignItems: "center"
+    alignItems: "center",
+    justifyContent: "center"
   },
   segmentActive: {
-    backgroundColor: TOKENS.color.accent,
-    borderColor: TOKENS.color.accentDeep
+    backgroundColor: TOKENS.color.bgDeep
   },
   segmentPressed: {
-    opacity: 0.82
+    opacity: 0.88
   },
   segmentText: {
     fontFamily: TOKENS.font.medium,
@@ -62,6 +64,7 @@ const styles = StyleSheet.create({
     color: TOKENS.color.ink
   },
   segmentTextActive: {
-    color: "#fff"
+    color: "#FFFFFF",
+    fontFamily: TOKENS.font.bold
   }
 });

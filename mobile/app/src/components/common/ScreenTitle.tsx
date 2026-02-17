@@ -19,13 +19,15 @@ export function ScreenTitle({ title, subtitle, style }: ScreenTitleProps) {
 const styles = StyleSheet.create({
   title: {
     fontFamily: TOKENS.font.display,
-    fontSize: 29,
-    color: TOKENS.color.ink
+    fontSize: 32,
+    color: TOKENS.color.ink,
+    letterSpacing: 0.4
   },
   subtitle: {
-    marginTop: 2,
+    marginTop: 4,
     fontFamily: TOKENS.font.body,
     color: TOKENS.color.inkSoft,
-    fontSize: 12
+    fontSize: 12,
+    lineHeight: 18
   }
 });

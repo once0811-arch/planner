@@ -8,6 +8,7 @@ export interface TravelPlan {
   startDateLocal: string;
   endDateLocal: string;
   isForeign: boolean;
+  journalEnabledAtMs: number | null;
   updatedAtMs: number;
   colorId: number;
 }
@@ -15,11 +16,22 @@ export interface TravelPlan {
 export interface ChangeProposalPreview {
   summary: string;
   operations: string[];
+  operationPayloads: ProposalOperationPayload[];
+  source?: "chat" | "ocr";
+  confidence?: number;
+  state?: "pending" | "registered" | "edited" | "cancelled";
+}
+
+export interface ProposalOperationPayload {
+  action: "create" | "update" | "delete";
+  targetEventId?: string;
+  draft: Partial<TripEvent>;
+  enabled?: boolean;
 }
 
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   text: string;
   createdAtMs: number;
   imageUris: string[];
@@ -33,6 +45,11 @@ export interface TripEvent {
   dateLocal: string;
   startTimeLocal?: string;
   endTimeLocal?: string;
+  departAtLocal?: string;
+  departTimezone?: string;
+  arriveAtLocal?: string;
+  arriveTimezone?: string;
+  locationLabel?: string;
   category: EventCategory;
   status: EventStatus;
   memo?: string;
@@ -64,6 +81,10 @@ export interface TrashItem {
   title: string;
   deletedAtMs: number;
   purgeAtMs: number;
+  snapshotPlan?: TravelPlan;
+  snapshotEvent?: TripEvent;
+  snapshotDayMemo?: DayMemo;
+  snapshotJournal?: JournalEntry;
 }
 
 export interface UserSettings {

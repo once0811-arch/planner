@@ -5,6 +5,7 @@ import { requireUid } from "../lib/auth";
 import { assertPlanOwner } from "../lib/plan";
 import { deterministicDocId, ensureOpId } from "../lib/id";
 import { nextVersion, sanitizeDraftData, sanitizePatch } from "./approveChangePolicy";
+import { randomColorId } from "../lib/color";
 
 const operationSchema = z.object({
   op: z.enum(["create", "update", "delete"]),
@@ -85,6 +86,12 @@ export const approveChange = onCall(async (req) => {
           throw new HttpsError("invalid-argument", "plan create is not supported in approveChange.");
         }
         const draftData = sanitizeDraftData(operation.targetType, operation.draftData);
+        if (
+          operation.targetType === "event" &&
+          (!Number.isFinite(Number(draftData.colorId)) || draftData.colorId === null)
+        ) {
+          draftData.colorId = randomColorId(8);
+        }
         tx.set(targetRef, {
           ownerUid: uid,
           planId: planRef.id,

@@ -8,14 +8,30 @@ import { AppScreen } from "../components/layout/AppScreen";
 import { ScreenTitle } from "../components/common/ScreenTitle";
 import { SurfaceCard } from "../components/common/SurfaceCard";
 import { EmptyState } from "../components/common/EmptyState";
-import { dateRange, formatDateLabel } from "../utils/format";
+import { FilterChip } from "../components/common/FilterChip";
+import { formatDateLabel } from "../utils/format";
+import { buildIndividualStacks, buildMonthGrid, buildOverallStacks } from "../calendar/monthView";
 
 type CalendarMode = "overall" | "individual";
+
+const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
+
+function shiftMonth(dateLocal: string, gap: number) {
+  const [yearRaw, monthRaw] = dateLocal.split("-").map(Number);
+  const date = new Date(Date.UTC(yearRaw, monthRaw - 1 + gap, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function monthTitle(dateLocal: string) {
+  const [year, month] = dateLocal.split("-");
+  return `${year}.${month}`;
+}
 
 export function CalendarScreen() {
   const { sortedPlans, activePlanId, setActivePlanId, eventsByPlan, dayMemosByPlan } = usePlanner();
   const [mode, setMode] = useState<CalendarMode>("overall");
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const [anchorDateLocal, setAnchorDateLocal] = useState("2026-04-01");
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const activePlan = useMemo(
@@ -23,39 +39,79 @@ export function CalendarScreen() {
     [sortedPlans, activePlanId]
   );
 
-  const individualDates = useMemo(() => {
-    if (!activePlan) {
-      return [];
+  useEffect(() => {
+    if (activePlan) {
+      setAnchorDateLocal(`${activePlan.startDateLocal.slice(0, 7)}-01`);
     }
-    return dateRange(activePlan.startDateLocal, activePlan.endDateLocal);
-  }, [activePlan]);
+  }, [activePlan?.id]);
+
+  const monthCells = useMemo(() => buildMonthGrid(anchorDateLocal), [anchorDateLocal]);
 
   useEffect(() => {
-    if (!individualDates.length) {
-      setSelectedDate(null);
-      return;
-    }
-    setSelectedDate((current) => (current && individualDates.includes(current) ? current : individualDates[0]));
-  }, [individualDates]);
+    const inMonthFirst = monthCells.find((cell) => cell.inCurrentMonth)?.dateLocal ?? null;
+    setSelectedDate((current) => (current && monthCells.some((cell) => cell.dateLocal === current) ? current : inMonthFirst));
+  }, [monthCells]);
 
   const dailyEvents: TripEvent[] = useMemo(() => {
-    if (!activePlan || !selectedDate) {
+    if (!selectedDate) {
       return [];
     }
-    return (eventsByPlan[activePlan.id] ?? []).filter((event) => event.dateLocal === selectedDate);
-  }, [activePlan, selectedDate, eventsByPlan]);
+
+    if (mode === "individual") {
+      if (!activePlan) {
+        return [];
+      }
+      return (eventsByPlan[activePlan.id] ?? []).filter((event) => event.dateLocal === selectedDate);
+    }
+
+    return sortedPlans.flatMap((plan) =>
+      (eventsByPlan[plan.id] ?? []).filter((event) => event.dateLocal === selectedDate)
+    );
+  }, [selectedDate, mode, activePlan, eventsByPlan, sortedPlans]);
 
   const dailyMemo = useMemo(() => {
-    if (!activePlan || !selectedDate) {
+    if (!selectedDate) {
       return null;
     }
-    return (dayMemosByPlan[activePlan.id] ?? []).find((memo) => memo.dateLocal === selectedDate)?.memo ?? null;
-  }, [activePlan, selectedDate, dayMemosByPlan]);
+
+    if (mode === "individual") {
+      if (!activePlan) {
+        return null;
+      }
+      return (dayMemosByPlan[activePlan.id] ?? []).find((memo) => memo.dateLocal === selectedDate)?.memo ?? null;
+    }
+
+    const memoChunks = sortedPlans
+      .map((plan) => {
+        const memo = (dayMemosByPlan[plan.id] ?? []).find((item) => item.dateLocal === selectedDate)?.memo;
+        if (!memo) {
+          return null;
+        }
+        return `${plan.title}: ${memo}`;
+      })
+      .filter((value): value is string => Boolean(value));
+
+    if (memoChunks.length === 0) {
+      return null;
+    }
+    return memoChunks.join("\n");
+  }, [selectedDate, mode, activePlan, dayMemosByPlan, sortedPlans]);
+
+  const eventMeta = (event: TripEvent) => {
+    if (event.category === "transport" && event.departAtLocal && event.arriveAtLocal) {
+      return `${event.departAtLocal.slice(11, 16)} → ${event.arriveAtLocal.slice(11, 16)} · 교통`;
+    }
+    if (event.startTimeLocal) {
+      return `${event.startTimeLocal} · ${event.category ?? "기타"}`;
+    }
+    return `${event.category ?? "기타"}`;
+  };
 
   return (
-    <AppScreen>
+    <AppScreen withOrbs>
       <View style={styles.header}>
-        <ScreenTitle title="캘린더" />
+        <ScreenTitle title="캘린더" subtitle="전체 일정과 개별 이벤트를 월 단위로 한눈에 확인" />
+
         <View style={styles.modeDropWrap}>
           <TouchableOpacity style={styles.modeButton} onPress={() => setModeMenuOpen((prev) => !prev)}>
             <Text style={styles.modeButtonText}>{mode === "overall" ? "전체일정" : "개별일정"}</Text>
@@ -63,7 +119,7 @@ export function CalendarScreen() {
           </TouchableOpacity>
 
           {modeMenuOpen ? (
-            <SurfaceCard style={styles.modeMenu}>
+            <SurfaceCard tone="raised" style={styles.modeMenu}>
               <Pressable
                 style={styles.modeMenuItem}
                 onPress={() => {
@@ -87,88 +143,120 @@ export function CalendarScreen() {
         </View>
       </View>
 
-      <View style={styles.main}>
-        <ScrollView contentContainerStyle={styles.content}>
-          {mode === "overall" ? (
-            <View style={styles.blockSection}>
-              {sortedPlans.map((plan) => (
-                <Pressable
-                  key={plan.id}
-                  style={({ pressed }) => [pressed ? styles.pressed : null]}
-                  onPress={() => {
-                    setActivePlanId(plan.id);
-                    setMode("individual");
-                  }}
-                >
-                  <SurfaceCard style={[styles.overallBlock, { borderLeftColor: colorById(plan.colorId) }]}>
-                    <Text style={styles.overallTitle}>{plan.title}</Text>
-                    <Text style={styles.overallMeta}>{plan.destination}</Text>
-                    <Text style={styles.overallMeta}>
-                      {formatDateLabel(plan.startDateLocal)} ~ {formatDateLabel(plan.endDateLocal)}
-                    </Text>
-                  </SurfaceCard>
-                </Pressable>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.blockSection}>
-              {activePlan ? (
-                individualDates.map((dateLocal) => {
-                  const events = (eventsByPlan[activePlan.id] ?? []).filter((event) => event.dateLocal === dateLocal);
-                  const previewBlocks = events.slice(0, 3);
-                  const extraCount = events.length - previewBlocks.length;
-
-                  return (
-                    <Pressable
-                      key={dateLocal}
-                      style={({ pressed }) => [pressed ? styles.pressed : null]}
-                      onPress={() => setSelectedDate(dateLocal)}
-                    >
-                      <SurfaceCard
-                        style={[
-                          styles.dayCard,
-                          selectedDate === dateLocal ? styles.dayCardSelected : null
-                        ]}
-                      >
-                        <Text style={styles.dayLabel}>{formatDateLabel(dateLocal)}</Text>
-
-                        <View style={styles.stackWrap}>
-                          {previewBlocks.length === 0 ? (
-                            <View style={styles.emptyStackBlock}>
-                              <Text style={styles.emptyStackText}>이벤트 없음</Text>
-                            </View>
-                          ) : (
-                            previewBlocks.map((event) => (
-                              <View
-                                key={event.id}
-                                style={[styles.eventStackBlock, { backgroundColor: colorById(event.colorId) }]}
-                              >
-                                <Text numberOfLines={1} style={styles.eventStackText}>
-                                  {event.title}
-                                </Text>
-                              </View>
-                            ))
-                          )}
-
-                          {extraCount > 0 ? <Text style={styles.moreLabel}>+{extraCount}</Text> : null}
-                        </View>
-                      </SurfaceCard>
-                    </Pressable>
-                  );
-                })
-              ) : (
-                <EmptyState message="플랜을 먼저 선택해 주세요." minHeight={100} />
-              )}
-            </View>
-          )}
+      {mode === "individual" ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.planFilterRow}>
+          {sortedPlans.map((plan) => (
+            <FilterChip
+              key={plan.id}
+              label={plan.title}
+              dotColor={colorById(plan.colorId)}
+              active={plan.id === (activePlan?.id ?? null)}
+              onPress={() => setActivePlanId(plan.id)}
+            />
+          ))}
         </ScrollView>
+      ) : null}
 
-        <SurfaceCard style={styles.bottomPanel}>
-          <Text style={styles.bottomTitle}>선택 일자 상세</Text>
-          <Text style={styles.bottomDate}>{selectedDate ? formatDateLabel(selectedDate) : "날짜 없음"}</Text>
+      <View style={styles.main}>
+        <SurfaceCard tone="raised" style={styles.monthCard}>
+          <View style={styles.monthHeader}>
+            <TouchableOpacity style={styles.navButton} onPress={() => setAnchorDateLocal((prev) => shiftMonth(prev, -1))}>
+              <Ionicons name="chevron-back" size={16} color={TOKENS.color.ink} />
+            </TouchableOpacity>
+            <Text style={styles.monthTitle}>{monthTitle(anchorDateLocal)}</Text>
+            <TouchableOpacity style={styles.navButton} onPress={() => setAnchorDateLocal((prev) => shiftMonth(prev, 1))}>
+              <Ionicons name="chevron-forward" size={16} color={TOKENS.color.ink} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.weekRow}>
+            {WEEKDAY_LABELS.map((day) => (
+              <Text key={day} style={styles.weekLabel}>
+                {day}
+              </Text>
+            ))}
+          </View>
+
+          <View style={styles.grid}>
+            {monthCells.map((cell) => {
+              const overallStacks = buildOverallStacks(cell.dateLocal, sortedPlans);
+              const individualStacks =
+                mode === "individual" && activePlan
+                  ? buildIndividualStacks(activePlan.id, cell.dateLocal, eventsByPlan)
+                  : null;
+              const preview =
+                mode === "overall"
+                  ? overallStacks.slice(0, 3).map((item) => ({
+                      key: item.planId,
+                      colorId: item.colorId,
+                      title: item.title,
+                      segment: item.segment
+                    }))
+                  : (individualStacks?.preview ?? []).slice(0, 3).map((event) => ({
+                      key: event.id,
+                      colorId: event.colorId,
+                      title: event.title,
+                      segment: "single"
+                    }));
+              const extraCount =
+                mode === "overall"
+                  ? Math.max(overallStacks.length - preview.length, 0)
+                  : individualStacks?.extraCount ?? 0;
+              const selected = selectedDate === cell.dateLocal;
+
+              return (
+                <Pressable
+                  key={cell.dateLocal}
+                  style={[styles.cellWrap, mode === "overall" ? styles.cellWrapOverall : null]}
+                  onPress={() => setSelectedDate(cell.dateLocal)}
+                >
+                  <View
+                    style={[
+                      styles.cell,
+                      !cell.inCurrentMonth ? styles.cellMuted : null,
+                      selected ? styles.cellSelected : null
+                    ]}
+                  >
+                    <Text style={[styles.dayNumber, !cell.inCurrentMonth ? styles.dayNumberMuted : null]}>
+                      {cell.dateLocal.slice(-2)}
+                    </Text>
+
+                    <View style={styles.stackArea}>
+                      {preview.map((item) => (
+                        <View
+                          key={item.key}
+                          style={[
+                            styles.stackBar,
+                            { backgroundColor: colorById(item.colorId) },
+                            mode === "overall" ? styles.overallStackBar : null,
+                            mode === "overall" && item.segment === "start" ? styles.segmentStart : null,
+                            mode === "overall" && item.segment === "middle" ? styles.segmentMiddle : null,
+                            mode === "overall" && item.segment === "end" ? styles.segmentEnd : null,
+                            mode === "overall" && item.segment === "single" ? styles.segmentSingle : null
+                          ]}
+                        >
+                          {mode === "overall" && (item.segment === "start" || item.segment === "single") ? (
+                            <Text numberOfLines={1} style={styles.stackLabel}>
+                              {item.title}
+                            </Text>
+                          ) : null}
+                        </View>
+                      ))}
+                      {extraCount > 0 ? <Text style={styles.extraLabel}>+{extraCount}</Text> : null}
+                    </View>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        </SurfaceCard>
+
+        <SurfaceCard tone="raised" style={styles.bottomPanel}>
+          <Text style={styles.bottomKicker}>DAY DETAIL</Text>
+          <Text style={styles.bottomTitle}>{selectedDate ? formatDateLabel(selectedDate) : "날짜 없음"}</Text>
 
           {dailyEvents.length === 0 ? (
-            <Text style={styles.bottomEmpty}>해당 일자에 이벤트가 없습니다.</Text>
+            <EmptyState message="해당 일자에 이벤트가 없습니다." minHeight={86} />
           ) : (
             <View style={styles.bottomEventsWrap}>
               {dailyEvents.map((event) => (
@@ -177,7 +265,7 @@ export function CalendarScreen() {
                   <View style={styles.flex}>
                     <Text style={styles.bottomEventTitle}>{event.title}</Text>
                     <Text style={styles.bottomEventMeta}>
-                      {event.startTimeLocal ?? "시간 미정"} · {event.category ?? "기타"}
+                      {eventMeta(event)}
                     </Text>
                   </View>
                 </View>
@@ -200,10 +288,11 @@ const styles = StyleSheet.create({
   header: {
     paddingTop: TOKENS.space.sm,
     paddingHorizontal: TOKENS.space.lg,
-    paddingBottom: TOKENS.space.md,
+    paddingBottom: TOKENS.space.sm,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center"
+    alignItems: "flex-start",
+    gap: TOKENS.space.sm
   },
   modeDropWrap: {
     position: "relative"
@@ -211,24 +300,24 @@ const styles = StyleSheet.create({
   modeButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 6,
     borderWidth: 1,
-    borderColor: TOKENS.color.line,
+    borderColor: TOKENS.color.lineStrong,
     borderRadius: TOKENS.radius.sm,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
     backgroundColor: TOKENS.color.surface
   },
   modeButtonText: {
-    fontFamily: TOKENS.font.medium,
+    fontFamily: TOKENS.font.bold,
     color: TOKENS.color.ink,
-    fontSize: 13
+    fontSize: 12
   },
   modeMenu: {
     position: "absolute",
-    top: 42,
+    top: 44,
     right: 0,
-    width: 116,
+    width: 118,
     overflow: "hidden",
     zIndex: 9
   },
@@ -237,9 +326,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10
   },
   modeMenuText: {
-    fontFamily: TOKENS.font.body,
+    fontFamily: TOKENS.font.medium,
     color: TOKENS.color.ink,
     fontSize: 13
+  },
+  planFilterRow: {
+    gap: TOKENS.space.xs,
+    paddingHorizontal: TOKENS.space.lg,
+    paddingBottom: TOKENS.space.sm
   },
   main: {
     flex: 1,
@@ -247,131 +341,167 @@ const styles = StyleSheet.create({
     paddingBottom: TOKENS.space.sm,
     gap: TOKENS.space.sm
   },
-  content: {
-    gap: TOKENS.space.sm,
-    paddingBottom: TOKENS.space.sm
-  },
-  blockSection: {
-    gap: TOKENS.space.sm
-  },
-  overallBlock: {
-    borderLeftWidth: 8,
-    padding: TOKENS.space.md,
-    gap: 3
-  },
-  overallTitle: {
-    fontFamily: TOKENS.font.bold,
-    fontSize: 16,
-    color: TOKENS.color.ink
-  },
-  overallMeta: {
-    fontFamily: TOKENS.font.body,
-    color: TOKENS.color.inkSoft,
-    fontSize: 12
-  },
-  dayCard: {
-    padding: TOKENS.space.md,
-    gap: TOKENS.space.sm
-  },
-  dayCardSelected: {
-    borderColor: TOKENS.color.accent
-  },
-  dayLabel: {
-    fontFamily: TOKENS.font.bold,
-    color: TOKENS.color.ink,
-    fontSize: 14
-  },
-  stackWrap: {
+  monthCard: {
+    padding: TOKENS.space.sm,
     gap: TOKENS.space.xs
   },
-  emptyStackBlock: {
-    borderRadius: 8,
+  monthHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between"
+  },
+  monthTitle: {
+    fontFamily: TOKENS.font.display,
+    fontSize: 24,
+    color: TOKENS.color.ink
+  },
+  navButton: {
+    width: 30,
+    height: 30,
+    borderRadius: TOKENS.radius.round,
     borderWidth: 1,
-    borderStyle: "dashed",
     borderColor: TOKENS.color.line,
-    paddingVertical: 8,
-    paddingHorizontal: TOKENS.space.sm
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: TOKENS.color.surface
   },
-  emptyStackText: {
-    fontFamily: TOKENS.font.body,
+  weekRow: {
+    flexDirection: "row",
+    marginTop: TOKENS.space.xs
+  },
+  weekLabel: {
+    width: `${100 / 7}%`,
+    textAlign: "center",
+    fontFamily: TOKENS.font.bold,
     color: TOKENS.color.inkSoft,
-    fontSize: 12
+    fontSize: 11
   },
-  eventStackBlock: {
-    borderRadius: 8,
-    paddingVertical: 7,
-    paddingHorizontal: TOKENS.space.sm
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap"
   },
-  eventStackText: {
-    fontFamily: TOKENS.font.medium,
-    color: TOKENS.color.ink,
-    fontSize: 12
+  cellWrap: {
+    width: `${100 / 7}%`,
+    padding: 2
   },
-  moreLabel: {
-    marginTop: 2,
-    fontFamily: TOKENS.font.medium,
-    color: TOKENS.color.accentDeep,
-    fontSize: 12
+  cellWrapOverall: {
+    padding: 0
+  },
+  cell: {
+    minHeight: 66,
+    borderRadius: TOKENS.radius.sm,
+    borderWidth: 1,
+    borderColor: TOKENS.color.line,
+    backgroundColor: TOKENS.color.surface,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    gap: 4
+  },
+  cellMuted: {
+    opacity: 0.45
+  },
+  cellSelected: {
+    borderColor: TOKENS.color.accentDeep,
+    backgroundColor: TOKENS.color.accentSoft
+  },
+  dayNumber: {
+    fontFamily: TOKENS.font.bold,
+    fontSize: 11,
+    color: TOKENS.color.ink
+  },
+  dayNumberMuted: {
+    color: TOKENS.color.inkSoft
+  },
+  stackArea: {
+    gap: 3
+  },
+  stackBar: {
+    height: 6,
+    borderRadius: TOKENS.radius.round
+  },
+  overallStackBar: {
+    height: 12,
+    justifyContent: "center",
+    paddingHorizontal: 4
+  },
+  segmentStart: {
+    borderTopLeftRadius: TOKENS.radius.round,
+    borderBottomLeftRadius: TOKENS.radius.round,
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2
+  },
+  segmentMiddle: {
+    borderRadius: 2
+  },
+  segmentEnd: {
+    borderTopLeftRadius: 2,
+    borderBottomLeftRadius: 2,
+    borderTopRightRadius: TOKENS.radius.round,
+    borderBottomRightRadius: TOKENS.radius.round
+  },
+  segmentSingle: {
+    borderRadius: TOKENS.radius.round
+  },
+  stackLabel: {
+    fontFamily: TOKENS.font.bold,
+    color: "#FFFFFF",
+    fontSize: 8
+  },
+  extraLabel: {
+    fontFamily: TOKENS.font.bold,
+    fontSize: 10,
+    color: TOKENS.color.inkSoft,
+    textAlign: "right"
   },
   bottomPanel: {
+    flex: 1,
     padding: TOKENS.space.md,
-    maxHeight: 240
+    gap: TOKENS.space.xs
+  },
+  bottomKicker: {
+    fontFamily: TOKENS.font.bold,
+    letterSpacing: 1.4,
+    fontSize: 10,
+    color: TOKENS.color.info
   },
   bottomTitle: {
     fontFamily: TOKENS.font.display,
-    color: TOKENS.color.ink,
-    fontSize: 22
-  },
-  bottomDate: {
-    marginTop: 2,
-    fontFamily: TOKENS.font.medium,
-    color: TOKENS.color.inkSoft,
-    fontSize: 12
-  },
-  bottomEmpty: {
-    marginTop: TOKENS.space.sm,
-    fontFamily: TOKENS.font.body,
-    color: TOKENS.color.inkSoft,
-    fontSize: 12
+    fontSize: 24,
+    color: TOKENS.color.ink
   },
   bottomEventsWrap: {
-    marginTop: TOKENS.space.xs,
-    gap: TOKENS.space.sm
+    gap: TOKENS.space.xs
   },
   bottomEventRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: TOKENS.space.sm
+    gap: TOKENS.space.xs,
+    alignItems: "center"
   },
   bottomDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 99
+    width: 9,
+    height: 9,
+    borderRadius: TOKENS.radius.round
   },
   bottomEventTitle: {
-    fontFamily: TOKENS.font.medium,
+    fontFamily: TOKENS.font.bold,
     color: TOKENS.color.ink,
     fontSize: 13
   },
   bottomEventMeta: {
-    marginTop: 1,
     fontFamily: TOKENS.font.body,
     color: TOKENS.color.inkSoft,
     fontSize: 11
   },
   memoTitle: {
-    marginTop: TOKENS.space.sm,
+    marginTop: TOKENS.space.xs,
     fontFamily: TOKENS.font.bold,
-    fontSize: 12,
-    color: TOKENS.color.ink
+    color: TOKENS.color.ink,
+    fontSize: 12
   },
   memoText: {
-    marginTop: 2,
     fontFamily: TOKENS.font.body,
+    color: TOKENS.color.inkSoft,
     fontSize: 12,
-    color: TOKENS.color.inkSoft
-  },
-  pressed: {
-    opacity: 0.82
+    lineHeight: 18
   }
 });

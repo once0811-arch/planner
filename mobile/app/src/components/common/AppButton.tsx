@@ -38,34 +38,43 @@ export function AppButton({ label, onPress, variant = "primary", style }: AppBut
 
 const styles = StyleSheet.create({
   base: {
+    minHeight: 42,
     borderRadius: TOKENS.radius.sm,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     alignItems: "center",
-    justifyContent: "center"
+    justifyContent: "center",
+    borderWidth: 1
   },
   primary: {
     backgroundColor: TOKENS.color.accent,
-    borderWidth: 1,
-    borderColor: TOKENS.color.accentDeep
+    borderColor: TOKENS.color.accentDeep,
+    shadowColor: TOKENS.color.accentDeep,
+    shadowOpacity: 0.24,
+    shadowRadius: 10,
+    shadowOffset: {
+      width: 0,
+      height: 4
+    },
+    elevation: 3
   },
   secondary: {
     backgroundColor: TOKENS.color.surface,
-    borderWidth: 1,
-    borderColor: TOKENS.color.line
+    borderColor: TOKENS.color.lineStrong
   },
   warning: {
-    backgroundColor: "#FEEED9",
-    borderWidth: 1,
-    borderColor: "#D9A36A"
+    backgroundColor: "#FFEAD9",
+    borderColor: "#D59B63"
   },
   pressed: {
-    opacity: 0.82
+    transform: [{ scale: 0.98 }],
+    opacity: 0.92
   },
   text: {
-    fontFamily: TOKENS.font.medium,
-    color: "#fff",
-    fontSize: 12
+    fontFamily: TOKENS.font.bold,
+    color: "#FFFFFF",
+    fontSize: 12,
+    letterSpacing: 0.2
   },
   secondaryText: {
     color: TOKENS.color.ink

@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, StyleSheet, Text, View } from "react-native";
 import { TOKENS } from "../theme/tokens";
 import { usePlanner } from "../context/PlannerContext";
 import { AppScreen } from "../components/layout/AppScreen";
@@ -7,22 +7,47 @@ import { SurfaceCard } from "../components/common/SurfaceCard";
 import { AppButton } from "../components/common/AppButton";
 
 export function SettingsScreen() {
-  const { settings, toggleJournalGenerateWithoutData, setGalleryPermissionState } = usePlanner();
+  const {
+    authSession,
+    settings,
+    toggleJournalGenerateWithoutData,
+    signOutSession
+  } = usePlanner();
+
+  const openAppSettings = async () => {
+    try {
+      await Linking.openSettings();
+    } catch (_error) {
+      Alert.alert("설정 이동 실패", "기기 설정에서 직접 권한을 변경해 주세요.");
+    }
+  };
+
+  const permissionLabelByState: Record<typeof settings.galleryPermissionState, string> = {
+    unknown: "확인 필요",
+    granted: "허용됨",
+    denied: "거부됨",
+    limited: "제한 허용"
+  };
 
   return (
     <AppScreen withOrbs>
       <View style={styles.header}>
-        <ScreenTitle title="설정" subtitle="계정, 권한, 일지 생성 옵션" />
+        <ScreenTitle title="설정" subtitle="계정/권한/자동 생성 정책을 여기서 관리" />
       </View>
 
       <View style={styles.content}>
-        <SurfaceCard style={styles.card}>
+        <SurfaceCard tone="raised" style={styles.card}>
           <Text style={styles.sectionTitle}>계정</Text>
           <Text style={styles.rowLabel}>로그인 방식</Text>
-          <Text style={styles.rowValue}>Google / Kakao (MVP)</Text>
+          <Text style={styles.rowValue}>
+            {authSession.provider ? `${authSession.provider} (MVP)` : "Google / Kakao (MVP)"}
+          </Text>
+          <View style={styles.actionGroup}>
+            <AppButton label="로그아웃" variant="secondary" onPress={signOutSession} />
+          </View>
         </SurfaceCard>
 
-        <SurfaceCard style={styles.card}>
+        <SurfaceCard tone="raised" style={styles.card}>
           <Text style={styles.sectionTitle}>일지 옵션</Text>
           <View style={styles.toggleRow}>
             <View style={styles.toggleTextWrap}>
@@ -38,18 +63,13 @@ export function SettingsScreen() {
           </View>
         </SurfaceCard>
 
-        <SurfaceCard style={styles.card}>
+        <SurfaceCard tone="raised" style={styles.card}>
           <Text style={styles.sectionTitle}>권한</Text>
           <Text style={styles.rowLabel}>갤러리 권한 상태</Text>
-          <Text style={styles.rowValue}>{settings.galleryPermissionState}</Text>
+          <Text style={styles.rowValue}>{permissionLabelByState[settings.galleryPermissionState]}</Text>
 
-          <View style={styles.permissionActions}>
-            <AppButton label="갤러리 권한 승인하기" onPress={() => setGalleryPermissionState("granted")} />
-            <AppButton
-              label="권한 거부 상태로 보기"
-              variant="secondary"
-              onPress={() => setGalleryPermissionState("denied")}
-            />
+          <View style={styles.actionGroup}>
+            <AppButton label="갤러리 권한 승인하기" onPress={openAppSettings} />
           </View>
         </SurfaceCard>
       </View>
@@ -74,12 +94,12 @@ const styles = StyleSheet.create({
     gap: TOKENS.space.sm
   },
   sectionTitle: {
-    fontFamily: TOKENS.font.bold,
+    fontFamily: TOKENS.font.display,
     color: TOKENS.color.ink,
-    fontSize: 15
+    fontSize: 24
   },
   rowLabel: {
-    fontFamily: TOKENS.font.medium,
+    fontFamily: TOKENS.font.bold,
     color: TOKENS.color.ink,
     fontSize: 13
   },
@@ -104,9 +124,9 @@ const styles = StyleSheet.create({
     flex: 1
   },
   toggleButton: {
-    minWidth: 72
+    minWidth: 74
   },
-  permissionActions: {
+  actionGroup: {
     marginTop: TOKENS.space.xs,
     gap: TOKENS.space.xs
   }

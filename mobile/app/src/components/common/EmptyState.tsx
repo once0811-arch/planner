@@ -11,6 +11,7 @@ interface EmptyStateProps {
 export function EmptyState({ message, dashed = true, minHeight = 120 }: EmptyStateProps) {
   return (
     <SurfaceCard
+      tone="muted"
       style={[
         styles.card,
         dashed ? styles.dashed : null,
@@ -20,6 +21,7 @@ export function EmptyState({ message, dashed = true, minHeight = 120 }: EmptySta
       ]}
     >
       <View style={styles.center}>
+        <Text style={styles.badge}>NO DATA</Text>
         <Text style={styles.text}>{message}</Text>
       </View>
     </SurfaceCard>
@@ -38,7 +40,14 @@ const styles = StyleSheet.create({
     minHeight: 90,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: TOKENS.space.md
+    paddingHorizontal: TOKENS.space.md,
+    gap: TOKENS.space.xs
+  },
+  badge: {
+    fontFamily: TOKENS.font.bold,
+    fontSize: 10,
+    color: TOKENS.color.inkSoft,
+    letterSpacing: 1.4
   },
   text: {
     fontFamily: TOKENS.font.body,
