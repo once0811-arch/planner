@@ -112,7 +112,7 @@ flowchart LR
 ### 아키텍처 구성
 1. 앱: 캘린더 월 뷰 + 하단 패널
 2. DB: 일자별 이벤트 쿼리 최적화 인덱스
-3. 색상 정책: 8팔레트 랜덤 부여 후 이벤트 생명주기 고정
+3. 색상 정책: 8팔레트 랜덤 기본 부여 + 사용자 수정 허용
 
 ## 4.4 일지
 
@@ -209,7 +209,11 @@ flowchart LR
 2. 러너는 `dueAtUtc <= now`이고 `state in (queued, failed)`인 작업만 조회한다
 3. 조회 후 락을 선점한 작업만 실행(`running -> done/failed`)
 4. 생성/공개 시각 계산은 enqueue 시점에 `planTimezone` 기준으로 `dueAtUtc`를 확정한다
-5. 런타임에서 전체 플랜 스캔은 금지하며, `journalJobs`를 단일 소스오브트루스로 사용한다
+5. 시각 변환 계약(2단계 잠금):
+   - `phase=generate|backfill`: `dateLocal`의 현지 `03:00`
+   - `phase=publish`: `dateLocal`의 현지 `08:00`
+   - 변환은 IANA timezone + DST 기준으로 수행(고정 UTC 시각 매핑 금지)
+6. 런타임에서 전체 플랜 스캔은 금지하며, `journalJobs`를 단일 소스오브트루스로 사용한다
 
 ## 6.2 백필(과거 일괄 생성)
 1. 일지 등록 시 `journalEnabledAt` 저장
@@ -266,7 +270,7 @@ flowchart LR
 
 ## 10.2 결과 요약
 1. `PARTIAL`: 화면 구조, 상태 규칙, 캘린더/일지 정책은 문서/백엔드 기준 반영. 모바일 UI 구현은 별도 진행 필요
-2. `PARTIAL`: 강제 스케줄(due queue, lock, 재시도) 최소 구현 완료. 플랜 타임존 정밀 변환 로직은 고도화 필요
+2. `PARTIAL`: 강제 스케줄(due queue, lock, 재시도) 최소 구현 완료. 타임존 정밀 변환 `계약`은 확정했으며 코드 반영은 단계4에서 진행
 3. `PASS`: 권한 거부 문구/CTA 기획 반영 완료
 4. `REVIEW NEEDED`: 사진 매칭 품질 기준(시간/거리 임계값) 수치 확정 필요
 5. `REVIEW NEEDED`: 일지 “충분히 채워짐” 임계값(예: 상위 3개 이후 컷오프 점수) 운영값 확정 필요
@@ -455,14 +459,26 @@ flowchart LR
 4. 배치 안정성을 위한 `journalJobs` 엔터티와 멱등/락 필드를 추가했다.
 5. 스키마 구현 전 결정해야 할 기준값을 체크리스트로 분리했다.
 
-### 14.2 스키마 작업 전 확정 필요 항목
-1. 타임존 우선순위 확정: `event.timezone`과 `planTimezone` 충돌 시 일지 날짜 절단 기준
-2. 제안 만료 정책 확정: `expiresAt` 값, 만료 후 재요청 규칙, 정리 배치 주기
-3. 휴지통 복구 범위 확정: 이벤트 단독 복구 vs 메모/일지/첨부 연쇄 복구
-4. 30일 삭제 실행 방식 확정: Firebase TTL 인덱스 vs 정리 Functions
-5. 관측성 필드 확정: 배치 실패/권한 거부/동기화 지연 지표 저장 위치와 보존기간
+### 14.2 스키마 선확정 항목(2단계 잠금)
+1. 타임존 우선순위 확정:
+   - 교통 이벤트는 `departTz/arriveTz` 우선
+   - 일반 이벤트는 `event.timezone` 우선, 없으면 `planTimezone`
+   - 시간 미정 이벤트는 `dateLocal`을 절대 기준으로 사용
+2. `createPlan` 멱등성 확정:
+   - 클라이언트가 `opId`를 보낸 경우에만 멱등 보장
+   - `opId` 미전송 요청은 비멱등 신규 생성으로 처리
+   - 제목/기간/목적지 기반 deterministic fallback 금지
+3. `approveChange` 보호 필드 확정:
+   - 시스템 필드(`ownerUid`, `createdAt`, `schemaVersion`, `version`, 삭제 메타 등)는 patch/draftData 입력 금지
+   - `targetType`별 화이트리스트 필드만 update 허용
+   - 승인 반영 성공 시 대상 문서 `version +1`
 
-### 14.3 스키마 산출물 정의(다음 단계)
+### 14.3 잔여 확정 필요 항목
+1. 제안 만료 정책 확정: `expiresAt` 값, 만료 후 재요청 규칙, 정리 배치 주기
+2. 휴지통 복구 범위 확정: 이벤트 단독 복구 vs 메모/일지/첨부 연쇄 복구
+3. 관측성 필드 확정: 배치 실패/권한 거부/동기화 지연 지표 저장 위치와 보존기간
+
+### 14.4 스키마 산출물 정의(다음 단계)
 1. Firestore 컬렉션별 필드 명세서(타입/필수/기본값/enum/검증식)
 2. Firestore Security Rules 초안
 3. `firestore.indexes.json` 초안
@@ -475,4 +491,5 @@ flowchart LR
 2. 오프라인 수동입력은 Firestore 직접 쓰기 대신 로컬 Outbox 후 Functions 동기화로 고정한다.
 3. 자동 일지 스케줄의 실행 소스는 `journalJobs` 단일 경로로 고정한다.
 4. Cloud Scheduler는 플랜 스캔을 수행하지 않고 due 작업 러너만 호출한다.
-5. 이벤트 색상은 생성 시 8팔레트에서 1회 배정 후 이벤트 생명주기 동안 고정한다.
+5. 이벤트 색상은 생성 시 8팔레트에서 기본 배정하되 사용자 수정을 허용한다.
+6. 휴지통 만료 삭제는 `Asia/Seoul` 기준 매일 03:00에 1회 실행한다.

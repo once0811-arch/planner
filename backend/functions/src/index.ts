@@ -8,3 +8,4 @@ export { enqueueJournalJob } from "./jobs/enqueueJournalJob";
 export { runJournalJob } from "./jobs/runJournalJob";
 export { runDueJournalJobs } from "./jobs/runDueJournalJobs";
 export { reconcileMissingJournalJobs } from "./jobs/reconcileMissingJournalJobs";
+export { purgeExpiredTrash } from "./jobs/purgeExpiredTrash";

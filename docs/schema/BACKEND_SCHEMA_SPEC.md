@@ -1,4 +1,4 @@
-# Backend Schema Spec (Draft v0.2)
+# Backend Schema Spec (Draft v0.3)
 
 - Date: 2026-02-17
 - Scope: Firestore schema for Planner MVP
@@ -8,8 +8,19 @@
 
 1. Timestamp fields use Firestore `Timestamp` in UTC.
 2. Local date uses `YYYY-MM-DD` (`dateLocal`), local time uses `HH:mm` (`timeLocal`).
-3. ID strategy uses Firestore auto ID by default. `opId` idempotency paths may use deterministic document IDs.
-4. All user-facing domain documents carry common metadata (`journalJobs` excluded):
+3. ID strategy uses Firestore auto ID by default.
+4. `createPlan` idempotency policy:
+   - If caller provides `opId`, backend deduplicates by the same `opId`.
+   - If `opId` is missing, backend generates a non-deterministic server `opId` and must not deduplicate across separate requests.
+5. Journal schedule time conversion policy:
+   - `phase=generate|backfill` runs at local `03:00` of `journalJobs.timezone`.
+   - `phase=publish` runs at local `08:00` of `journalJobs.timezone`.
+   - `dueAtUtc` must be derived via IANA timezone-aware conversion (DST-aware), not fixed `Z` hour mapping.
+6. Journal date slicing timezone precedence:
+   - Transport leg uses `departTz` and `arriveTz` for leg times.
+   - Non-transport event uses `event.timezone` first, then `planTimezone`.
+   - If time is missing, `dateLocal` is treated as authoritative calendar date.
+7. All user-facing domain documents carry common metadata (`journalJobs` excluded):
    - `ownerUid` (string, required)
    - `createdAt` (timestamp, required)
    - `updatedAt` (timestamp, required)
@@ -17,9 +28,9 @@
    - `isDeleted` (boolean, required, default `false`)
    - `version` (number, required, default `1`)
    - `lastOpId` (string, optional, idempotency tracing)
-5. User-facing optional values (`status`, `category`, time) are nullable by design.
-6. Journal batch runtime source-of-truth is `journalJobs` only (no runtime full plan scan).
-7. Offline manual edits are persisted to local Outbox first, then synced through backend functions.
+8. User-facing optional values (`status`, `category`, time) are nullable by design.
+9. Journal batch runtime source-of-truth is `journalJobs` only (no runtime full plan scan).
+10. Offline manual edits are persisted to local Outbox first, then synced through backend functions.
 
 ## 2. Enum Dictionary
 
@@ -101,7 +112,7 @@
 | locationName | string | no | null | |
 | lat | number | no | null | |
 | lng | number | no | null | |
-| colorId | number | yes | random 0..7 | Assigned once at create and fixed for lifecycle |
+| colorId | number | yes | random 0..7 | User editable (8-palette based) |
 | importanceScore | number | no | null | Journal selector input |
 | departAtLocal | string | no | null | Transport events only |
 | departTz | string | no | null | Transport events only |
@@ -331,8 +342,32 @@ Validation:
 3. Duplicate job prevention uses `idempotencyKey`.
 4. Scheduler runner only polls due jobs from `journalJobs` (`dueAtUtc <= now`).
 
+## 5.1 `approveChange` Mutation Guard (Locked)
+
+1. Immutable/system-managed fields must never be accepted from `patch`/`draftData`:
+   - `ownerUid`, `planId`, `createdAt`, `createdBy`, `updatedAt`, `updatedBy`, `source`, `schemaVersion`, `isDeleted`, `deletedAt`, `deletedBy`, `version`, `lastOpId`
+2. `update` operation whitelist by `targetType`:
+   - `plan`: `title`, `destination`, `startDateLocal`, `endDateLocal`, `planTimezone`, `isForeign`, `journalEnabledAt`
+   - `event`: `title`, `status`, `category`, `dateLocal`, `startTimeLocal`, `endTimeLocal`, `timezone`, `memo`, `locationName`, `lat`, `lng`, `colorId`, `importanceScore`, `departAtLocal`, `departTz`, `arriveAtLocal`, `arriveTz`
+   - `dayMemo`: `dateLocal`, `memo`
+3. `create` operation must strip immutable fields from `draftData` and set system fields server-side.
+4. Every successful mutation must increment target document `version` by `+1`.
+
+## 5.2 `createPlan` Idempotency Contract (Locked)
+
+1. Primary dedupe key is explicit caller `opId`.
+2. Missing `opId` is treated as non-idempotent create intent.
+3. Deterministic fallback from business fields (`title/date/destination`) is forbidden.
+4. Response must still include `lastOpId` tracing value for auditability.
+
+## 5.3 Trash Purge Schedule (Locked)
+
+1. Purge execution uses scheduled function (`purgeExpiredTrash`) once per day.
+2. Execution time is `03:00` in `Asia/Seoul`.
+3. Purge target is `state=in_trash` and `purgeAt <= now`.
+4. If one page is full, purge continues paging in the same run until remaining eligible docs are exhausted.
+
 ## 6. Open Decisions Before Final Schema Freeze
 
-1. Confirm timezone precedence (`event.timezone` vs `planTimezone`) for journal date slicing.
-2. Confirm proposal expiry policy (`expiresAt` and cleanup).
-3. Confirm trash restore scope (event-only vs all related entities).
+1. Confirm proposal expiry policy (`expiresAt` and cleanup).
+2. Confirm trash restore scope (event-only vs all related entities).

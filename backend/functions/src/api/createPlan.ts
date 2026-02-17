@@ -1,8 +1,9 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { db } from "../lib/firebase";
 import { requireUid } from "../lib/auth";
-import { deterministicDocId, ensureOpId } from "../lib/id";
+import { deterministicDocId } from "../lib/id";
 
 const createPlanSchema = z.object({
   opId: z.string().optional(),
@@ -17,6 +18,13 @@ const createPlanSchema = z.object({
   path: ["startDateLocal"]
 });
 
+export function resolveCreatePlanOpId(opId?: string): string {
+  if (opId && opId.trim().length > 0) {
+    return opId.trim();
+  }
+  return randomUUID();
+}
+
 export const createPlan = onCall(async (req) => {
   const uid = requireUid(req);
   const parsed = createPlanSchema.safeParse(req.data);
@@ -24,7 +32,7 @@ export const createPlan = onCall(async (req) => {
     throw new HttpsError("invalid-argument", "Invalid createPlan payload.");
   }
 
-  const opId = ensureOpId(parsed.data.opId, uid, parsed.data.title, parsed.data.startDateLocal, parsed.data.endDateLocal);
+  const opId = resolveCreatePlanOpId(parsed.data.opId);
   const planId = deterministicDocId(uid, "plan", opId);
   const planRef = db.collection("plans").doc(planId);
   const existing = await planRef.get();

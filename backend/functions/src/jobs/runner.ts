@@ -1,63 +1,12 @@
 import { HttpsError } from "firebase-functions/v2/https";
 import { db } from "../lib/firebase";
 import { deterministicDocId } from "../lib/id";
+import { asJournalJobDoc } from "./serializer";
+import { shouldSkipForLock } from "./statePolicy";
+import { defaultDueAtUtc } from "./timePolicy";
+import type { JournalJobDoc } from "./types";
 
-type JobState = "queued" | "running" | "done" | "failed" | "deadletter";
-type JobPhase = "generate" | "publish" | "backfill";
-
-interface JournalJobDoc {
-  planId: string;
-  ownerUid: string;
-  dateLocal: string;
-  phase: JobPhase;
-  timezone: string;
-  dueAtUtc: Date;
-  state: JobState;
-  attemptCount: number;
-  nextRetryAt: Date | null;
-  idempotencyKey: string;
-  lockOwner: string | null;
-  lockAt: Date | null;
-  lastError: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-function asJournalJobDoc(raw: FirebaseFirestore.DocumentData | undefined): JournalJobDoc {
-  if (!raw) {
-    throw new HttpsError("not-found", "journal job not found.");
-  }
-  return {
-    planId: String(raw.planId ?? ""),
-    ownerUid: String(raw.ownerUid ?? ""),
-    dateLocal: String(raw.dateLocal ?? ""),
-    phase: raw.phase as JobPhase,
-    timezone: String(raw.timezone ?? "UTC"),
-    dueAtUtc: (raw.dueAtUtc as Date) ?? new Date(),
-    state: raw.state as JobState,
-    attemptCount: Number(raw.attemptCount ?? 0),
-    nextRetryAt: (raw.nextRetryAt as Date | null) ?? null,
-    idempotencyKey: String(raw.idempotencyKey ?? ""),
-    lockOwner: (raw.lockOwner as string | null) ?? null,
-    lockAt: (raw.lockAt as Date | null) ?? null,
-    lastError: (raw.lastError as string | null) ?? null,
-    createdAt: (raw.createdAt as Date) ?? new Date(),
-    updatedAt: (raw.updatedAt as Date) ?? new Date()
-  };
-}
-
-function normalizeDate(dateLocal: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateLocal)) {
-    throw new HttpsError("invalid-argument", "dateLocal must be YYYY-MM-DD.");
-  }
-  return dateLocal;
-}
-
-export function defaultDueAtUtc(dateLocal: string, phase: JobPhase): Date {
-  const normalized = normalizeDate(dateLocal);
-  const hour = phase === "publish" ? 8 : 3;
-  return new Date(`${normalized}T${hour.toString().padStart(2, "0")}:00:00.000Z`);
-}
+export { defaultDueAtUtc };
 
 function buildJournalDayRef(planId: string, dateLocal: string) {
   return db.collection("plans").doc(planId).collection("journalDays").doc(dateLocal);
@@ -72,7 +21,7 @@ async function executeGenerateLike(job: JournalJobDoc) {
       planId: job.planId,
       dateLocal: job.dateLocal,
       state: "draft",
-      publishAtLocal0800: defaultDueAtUtc(job.dateLocal, "publish"),
+      publishAtLocal0800: defaultDueAtUtc(job.dateLocal, "publish", job.timezone),
       publishedAt: null,
       summary: "정보가 부족해 일지를 만들지 못 했어요",
       selectedEventIds: [],
@@ -129,7 +78,7 @@ export async function runJournalJobById(
     }
 
     const current = asJournalJobDoc(jobSnap.data());
-    if (current.state === "done" || current.state === "deadletter" || current.state === "running") {
+    if (shouldSkipForLock(current.state)) {
       return;
     }
 

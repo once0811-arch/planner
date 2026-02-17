@@ -4,6 +4,7 @@ import { db } from "../lib/firebase";
 import { requireUid } from "../lib/auth";
 import { assertPlanOwner } from "../lib/plan";
 import { deterministicDocId, ensureOpId } from "../lib/id";
+import { nextVersion, sanitizeDraftData, sanitizePatch } from "./approveChangePolicy";
 
 const operationSchema = z.object({
   op: z.enum(["create", "update", "delete"]),
@@ -83,10 +84,11 @@ export const approveChange = onCall(async (req) => {
         if (operation.targetType === "plan") {
           throw new HttpsError("invalid-argument", "plan create is not supported in approveChange.");
         }
+        const draftData = sanitizeDraftData(operation.targetType, operation.draftData);
         tx.set(targetRef, {
           ownerUid: uid,
           planId: planRef.id,
-          ...(operation.draftData ?? {}),
+          ...draftData,
           createdAt: now,
           updatedAt: now,
           createdBy: "system",
@@ -106,19 +108,23 @@ export const approveChange = onCall(async (req) => {
       }
 
       if (operation.op === "update") {
+        const patch = sanitizePatch(operation.targetType, operation.patch);
+        const version = nextVersion(targetSnap.get("version"));
         tx.set(
           targetRef,
           {
-            ...(operation.patch ?? {}),
+            ...patch,
             updatedAt: now,
             updatedBy: "system",
-            source
+            source,
+            version
           },
           { merge: true }
         );
         continue;
       }
 
+      const version = nextVersion(targetSnap.get("version"));
       tx.set(
         targetRef,
         {
@@ -127,7 +133,8 @@ export const approveChange = onCall(async (req) => {
           deletedBy: "system",
           updatedAt: now,
           updatedBy: "system",
-          source
+          source,
+          version
         },
         { merge: true }
       );

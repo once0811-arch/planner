@@ -22,6 +22,17 @@ Planner MVP development workspace.
 5. Start emulator from repo root:
    - `npx firebase-tools emulators:start --only firestore,functions,pubsub`
 
+## Validation Gate
+
+Run from repository root:
+
+1. `npm run check:env`
+2. `npm run check:backend`
+3. `npm run check:mobile:typecheck`
+4. `npm run check:mobile:doctor`
+5. `npm run check:emulator`
+6. `npm run check:all` (runs all checks in sequence)
+
 ## Environment Requirements
 
 1. JDK 21+ is required by current Firebase emulator tooling.

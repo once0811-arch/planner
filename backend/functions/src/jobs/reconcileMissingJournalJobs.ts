@@ -1,6 +1,6 @@
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { db } from "../lib/firebase";
-import { defaultDueAtUtc } from "./runner";
+import { defaultDueAtUtc } from "./timePolicy";
 import { deterministicDocId } from "../lib/id";
 
 export const reconcileMissingJournalJobs = onSchedule("every day 01:00", async () => {
@@ -33,7 +33,7 @@ export const reconcileMissingJournalJobs = onSchedule("every day 01:00", async (
         dateLocal: todayLocal,
         phase,
         timezone,
-        dueAtUtc: defaultDueAtUtc(todayLocal, phase),
+        dueAtUtc: defaultDueAtUtc(todayLocal, phase, timezone),
         state: "queued",
         attemptCount: 0,
         nextRetryAt: null,

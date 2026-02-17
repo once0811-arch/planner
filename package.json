@@ -1,0 +1,13 @@
+{
+  "name": "planner-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "check:env": "./scripts/check-env.sh",
+    "check:backend": "npm --prefix backend/functions test",
+    "check:mobile:typecheck": "npm --prefix mobile/app run typecheck",
+    "check:mobile:doctor": "npm --prefix mobile/app run doctor",
+    "check:emulator": "./scripts/check-emulator.sh",
+    "check:all": "npm run check:env && npm run check:backend && npm run check:mobile:typecheck && npm run check:mobile:doctor && npm run check:emulator"
+  }
+}

@@ -4,7 +4,7 @@ import { db } from "../lib/firebase";
 import { requireUid } from "../lib/auth";
 import { assertPlanOwner } from "../lib/plan";
 import { deterministicDocId, ensureOpId } from "../lib/id";
-import { defaultDueAtUtc } from "./runner";
+import { defaultDueAtUtc } from "./timePolicy";
 
 const enqueueJournalJobSchema = z.object({
   opId: z.string().optional(),
@@ -30,7 +30,7 @@ export const enqueueJournalJob = onCall(
     const dueAtUtc =
       parsed.data.dueAtUtcMs !== undefined
         ? new Date(parsed.data.dueAtUtcMs)
-        : defaultDueAtUtc(parsed.data.dateLocal, parsed.data.phase);
+        : defaultDueAtUtc(parsed.data.dateLocal, parsed.data.phase, timezone);
 
     const idempotencyKey = `${parsed.data.planId}|${parsed.data.dateLocal}|${parsed.data.phase}`;
     const opId = ensureOpId(parsed.data.opId, uid, idempotencyKey, Date.now().toString());
