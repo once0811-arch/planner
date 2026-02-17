@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isOwnerDoc() {
+      return signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /users/{uid} {
+      allow read, create, update: if isSelf(uid);
+      allow delete: if false;
+    }
+
+    match /settings/{uid} {
+      allow read, create, update: if isSelf(uid);
+      allow delete: if false;
+    }
+
+    match /plans/{planId} {
+      allow read: if isOwnerDoc();
+      allow create, update, delete: if false;
+
+      match /events/{eventId} {
+        allow read: if isOwnerDoc();
+        allow create, update, delete: if false;
+      }
+
+      match /dayMemos/{dayMemoId} {
+        allow read: if isOwnerDoc();
+        allow create, update, delete: if false;
+      }
+
+      match /journalDays/{journalDayId} {
+        allow read: if isOwnerDoc();
+        allow create, update, delete: if false;
+      }
+
+      match /journalEntries/{entryId} {
+        allow read: if isOwnerDoc();
+        allow create, update, delete: if false;
+      }
+
+      match /photoCandidates/{photoId} {
+        allow read: if isOwnerDoc();
+        allow create, update, delete: if false;
+      }
+
+      match /changeProposals/{proposalId} {
+        allow read: if isOwnerDoc();
+        allow create, update, delete: if false;
+      }
+
+      match /messages/{messageId} {
+        allow read: if isOwnerDoc();
+        allow create, update, delete: if false;
+      }
+    }
+
+    match /journalJobs/{jobId} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /trash/{trashId} {
+      allow read: if isOwnerDoc();
+      allow create, update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, create, update, delete: if false;
+    }
+  }
+}

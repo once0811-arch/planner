@@ -1,0 +1,19 @@
+# Node
+node_modules/
+
+# Firebase
+.firebase/
+firebase-debug.log
+pubsub-debug.log
+
+# Functions build output
+backend/functions/lib/
+
+# Local env
+.env
+.env.*
+
+# macOS
+.DS_Store
+
+firestore-debug.log
